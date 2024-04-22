@@ -173,38 +173,36 @@ func simulateGasStation() {
 			vehicle.time_start_in_station_queue = time.Now()
 			shortest_station := getShortestQueueStation(station_queues, vehicle.fuel)
 			station_queues[shortest_station] <- vehicle
-			//printVehicleArrival(vehicle, shortest_station.id)
+			printVehicleArrival(vehicle, shortest_station.id)
 			time.Sleep(time.Duration(rand.Intn(4)) * time_mode)
 		}
 	}()
 
 	// tankovani a zarazení k platbe
 	for _, station := range stations {
-		for j := 1; j <= config[station.fuel.name].num; j++ {
-			go func(station Station, j int) {
-				for {
-					vehicle := <-station_queues[station]
-					//printVehicleStartRefuels(vehicle, station.id)
-					mu.Lock()
-					rnd_serve_time := time.Duration(float32(station.serve_time_min/time_mode) + rand.Float32()*float32(station.serve_time_max/time_mode-station.serve_time_min/time_mode))
+		go func(station Station) {
+			for {
+				vehicle := <-station_queues[station]
+				printVehicleStartRefuels(vehicle, station.id)
+				mu.Lock()
+				rnd_serve_time := time.Duration(float32(station.serve_time_min/time_mode) + rand.Float32()*float32(station.serve_time_max/time_mode-station.serve_time_min/time_mode))
 
-					stats[vehicle.fuel.name].total_car += 1
-					stats[vehicle.fuel.name].total_time += rnd_serve_time * time_mode
-					time_in_que_station := time.Since(vehicle.time_start_in_station_queue)
-					if time_in_que_station > stats[vehicle.fuel.name].max_queue_time {
-						stats[vehicle.fuel.name].max_queue_time = time_in_que_station
-					}
-					stats[vehicle.fuel.name].total_queue_time += time_in_que_station
-
-					time.Sleep(rnd_serve_time * time_mode)
-					idx := getShortestQueueRegister(register_queues)
-					vehicle.time_start_in_register_queue = time.Now()
-					//printVehicleEndRefuels(vehicle, station.id)
-					register_queues[idx] <- vehicle
-					mu.Unlock()
+				stats[vehicle.fuel.name].total_car += 1
+				stats[vehicle.fuel.name].total_time += rnd_serve_time * time_mode
+				time_in_que_station := time.Since(vehicle.time_start_in_station_queue)
+				if time_in_que_station > stats[vehicle.fuel.name].max_queue_time {
+					stats[vehicle.fuel.name].max_queue_time = time_in_que_station
 				}
-			}(station, j)
-		}
+				stats[vehicle.fuel.name].total_queue_time += time_in_que_station
+
+				time.Sleep(rnd_serve_time * time_mode)
+				idx := getShortestQueueRegister(register_queues)
+				vehicle.time_start_in_register_queue = time.Now()
+				printVehicleEndRefuels(vehicle, station.id, idx)
+				register_queues[idx] <- vehicle
+				mu.Unlock()
+			}
+		}(station)
 	}
 
 	// platba
@@ -225,6 +223,7 @@ func simulateGasStation() {
 
 				time.Sleep(rnd_handle_time * time_mode)
 				mu.Unlock()
+				//printVehicleExit(vehicle)
 				wg.Done()
 
 			}
@@ -276,17 +275,17 @@ func printStats(stats map[string]*struct {
 			fuel := key
 			fmt.Printf("  %s:\n", fuel)
 			fmt.Printf("    total_cars: %v\n", stats[fuel].total_car)
-			fmt.Printf("    total_time: %v\n", stats[fuel].total_time.Seconds())
-			fmt.Printf("    avg_queue_time: %v\n", stats[fuel].total_queue_time.Seconds()/float64(stats[fuel].total_car))
-			fmt.Printf("    max_queue_time: %v\n", stats[fuel].max_queue_time.Seconds())
+			fmt.Printf("    total_time: %.4fs\n", stats[fuel].total_time.Seconds())
+			fmt.Printf("    avg_queue_time: %.4fs\n", stats[fuel].total_queue_time.Seconds()/float64(stats[fuel].total_car))
+			fmt.Printf("    max_queue_time: %.4fs\n", stats[fuel].max_queue_time.Seconds())
 		}
 	}
 
 	fmt.Println("registers: ")
 	fmt.Printf("  total_cars: %v\n", stats["register"].total_car)
-	fmt.Printf("  total_time: %v\n", stats["register"].total_time.Seconds())
-	fmt.Printf("  avg_queue_time: %v\n", stats["register"].total_queue_time.Seconds()/float64(stats["register"].total_car))
-	fmt.Printf("  max_queue_time: %v\n", stats["register"].max_queue_time.Seconds())
+	fmt.Printf("  total_time: %.4fs\n", stats["register"].total_time.Seconds())
+	fmt.Printf("  avg_queue_time: %.4fs\n", stats["register"].total_queue_time.Seconds()/float64(stats["register"].total_car))
+	fmt.Printf("  max_queue_time: %.4fs\n", stats["register"].max_queue_time.Seconds())
 	fmt.Printf("%20s\n", strings.Repeat("#", 70))
 }
 
@@ -296,8 +295,11 @@ func printVehicleArrival(vehicle Vehicle, station_id string) {
 func printVehicleStartRefuels(vehicle Vehicle, station_id string) {
 	fmt.Printf("Car: %d (%s) started refueling at the %s station\n", vehicle.id, vehicle.fuel.name, station_id)
 }
-func printVehicleEndRefuels(vehicle Vehicle, station_id string) {
-	fmt.Printf("Car: %d (%s) ended refueling at the %s station\n", vehicle.id, vehicle.fuel.name, station_id)
+func printVehicleEndRefuels(vehicle Vehicle, station_id string, register_id int) {
+	fmt.Printf("Car: %d (%s) ended refueling at the %s station and stands in %v queue to pay\n", vehicle.id, vehicle.fuel.name, station_id, register_id)
+}
+func printVehicleExit(vehicle Vehicle) {
+	fmt.Printf("Car: %d (%s) leaved gas station\n", vehicle.id, vehicle.fuel.name)
 }
 
 func main() {
